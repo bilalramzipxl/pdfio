@@ -58,6 +58,7 @@ export function RendererProvider({ children }: { children: React.ReactNode }) {
     free(docId) { send({ op: 'free', docId }).catch(() => {}); },
     async detect(b64) { const r = await send({ op: 'detect', b64 }); return r.corners; },
     async scan(b64, o) { const r = await send({ op: 'scan', b64, ...o }); return { uri: r.dataUrl, w: r.w, h: r.h }; },
+    async suggest(b64, o) { const r = await send({ op: 'suggest', b64, ...o }); return { mode: r.mode, shadow: r.shadow, rotate: r.rotate, notes: r.notes, found: r.found }; },
   }), []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return <Ctx.Provider value={api}>{children}</Ctx.Provider>;

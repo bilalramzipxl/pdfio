@@ -11,10 +11,13 @@ export type RenderApi = {
   /** Zoekt de hoeken van het papier in een foto (genormaliseerd, TL TR BR BL). */
   detect(b64: string): Promise<Corner[]>;
   /** Rechtzetten + opschonen van een foto tot een documentscan (JPEG). */
-  scan(b64: string, o: { corners?: Corner[]; mode: ScanMode; maxSide?: number; quality?: number }): Promise<{ uri: string; w: number; h: number }>;
+  scan(b64: string, o: { corners?: Corner[]; mode: ScanMode; shadow?: boolean; maxSide?: number; quality?: number; fmt?: 'jpeg' | 'png' }): Promise<{ uri: string; w: number; h: number }>;
+  /** Kiest de beste bewerking voor een foto (stand, schaduw, draaien) met uitleg in gewone taal. */
+  suggest(b64: string, o: { corners?: Corner[] }): Promise<ScanSuggestion>;
 };
 export type Corner = { x: number; y: number };
-export type ScanMode = 'document' | 'gray' | 'color';
+export type ScanMode = 'document' | 'gray' | 'color' | 'original';
+export type ScanSuggestion = { mode: ScanMode; shadow: boolean; rotate: 0 | 90; notes: string[]; found: boolean };
 
 const WV = WebView as unknown as React.ComponentType<any>;
 const Ctx = createContext<RenderApi | null>(null);
@@ -65,6 +68,7 @@ export function RendererProvider({ children }: { children: React.ReactNode }) {
     free(docId) { send({ op: 'free', docId }).catch(() => {}); },
     async detect(b64) { const r = await send({ op: 'detect', b64 }); return r.corners; },
     async scan(b64, o) { const r = await send({ op: 'scan', b64, ...o }); return { uri: r.dataUrl, w: r.w, h: r.h }; },
+    async suggest(b64, o) { const r = await send({ op: 'suggest', b64, ...o }); return { mode: r.mode, shadow: r.shadow, rotate: r.rotate, notes: r.notes, found: r.found }; },
   }), [send]);
 
   return (

@@ -7,6 +7,7 @@ import { b64ToBytes } from '../engine/base64';
 import { useRenderer } from '../services/Renderer';
 import { Doc, fmtSize, saveToLibrary, sharePdf, uid } from '../services/files';
 import { normalizeImage } from '../services/images';
+import { ensurePhotos } from '../services/permissions';
 import { Btn, BottomBar, Busy, IconBtn, Row, Sheet, Toast, TopBar } from '../ui/components';
 import { useTheme } from '../ui/theme';
 import { showAlert } from '../services/dialog';
@@ -108,6 +109,7 @@ export function Editor({ doc, initialDirty, onClose, onPages, onDocChange }: Pro
   const pickImage = async () => {
     setSheet(null);
     try {
+      await ensurePhotos();
       const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 1 });
       if (res.canceled) return;
       setBusy('Afbeelding voorbereiden…');

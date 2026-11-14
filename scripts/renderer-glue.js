@@ -39,7 +39,7 @@
         post({ id: msg.id, ok: true, dataUrl: url, w: c.width, h: c.height, wPt: v1.width, hPt: v1.height });
         c.width = c.height = 0;
         page.cleanup();
-      } else if (msg.op === 'detect' || msg.op === 'scan') {
+      } else if (msg.op === 'detect' || msg.op === 'scan' || msg.op === 'suggest') {
         var r = await window.__scanOps[msg.op](msg);
         r.id = msg.id; r.ok = true; post(r);
       } else if (msg.op === 'free') {

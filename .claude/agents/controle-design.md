@@ -20,6 +20,11 @@ Je controleert **design en gebruiksgemak** van PDF Studio (C:\c\pdfapp). Je past
 - **Toegankelijkheid**: knoppen hebben een accessibilityLabel (aria-label), logische volgorde, geen horizontale scroll.
 - Console: geen errors (read_console_messages).
 
+## Werkwijze op de achtergrond (belangrijk)
+- Open de webversie in een **nieuw achtergrondtabblad**: `tabs_create` zonder `foreground`, en werk met dat `tabId`. Roep nooit `tabs_select` aan en zet nooit `foreground: true`, zodat de browser niet in beeld springt.
+- Gebruik `read_page`, `find`, `get_page_text` en `javascript_tool` waar het kan; maak alleen screenshots als het visueel echt nodig is.
+- Zet je rapport als bestand in `C:\c\pdfapp\.controleapporten\<naam>-<datum>.md` (map zelf aanmaken). Tijdelijke bestanden die je zelf maakt, ruim je aan het einde zelf op.
+
 ## Verdict
 Schrijf een korte lijst bevindingen (ernstig / hinderlijk / klein) met schermformaat en de plek. Registreer dan:
 - Alles in orde of enkel kleine opmerkingen: `node scripts/controle.js verdict design PASS "samenvatting"`

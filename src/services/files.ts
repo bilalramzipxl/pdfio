@@ -98,23 +98,32 @@ export async function renameRecent(r: Recent, name: string) {
   await saveRecents((await loadRecents()).map((x) => (x.id === r.id ? { ...x, name } : x)));
 }
 
-/** Deelt/exporteert een PDF met een nette bestandsnaam via het deelmenu van het systeem. */
-export async function sharePdf(name: string, bytes: Uint8Array) {
+export type ExportFormat = 'pdf' | 'jpeg' | 'png';
+export const EXPORT_TYPES: Record<ExportFormat, { ext: string; mime: string; uti: string; label: string }> = {
+  pdf: { ext: 'pdf', mime: 'application/pdf', uti: 'com.adobe.pdf', label: 'PDF' },
+  jpeg: { ext: 'jpg', mime: 'image/jpeg', uti: 'public.jpeg', label: 'JPEG' },
+  png: { ext: 'png', mime: 'image/png', uti: 'public.png', label: 'PNG' },
+};
+
+/** Deelt/exporteert een bestand (PDF, JPEG of PNG) met een nette bestandsnaam via het deelmenu van het systeem. */
+export async function shareFile(name: string, bytes: Uint8Array, fmt: ExportFormat = 'pdf') {
+  const T = EXPORT_TYPES[fmt], fileName = `${safeName(stripExt(name))}.${T.ext}`;
   if (Platform.OS === 'web') { // alleen voor controle in de browser: download + teller
-    (globalThis as any).__lastShared = { name, size: bytes.length };
-    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([bytes as BlobPart], { type: 'application/pdf' })); a.download = `${safeName(stripExt(name))}.pdf`; a.click(); return;
+    (globalThis as any).__lastShared = { name: fileName, size: bytes.length, fmt };
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([bytes as BlobPart], { type: T.mime })); a.download = fileName; a.click(); return;
   }
   const cache = new Directory(Paths.cache, 'export');
   if (!cache.exists) cache.create({ intermediates: true });
-  const f = new File(cache, `${safeName(stripExt(name))}.pdf`);
+  const f = new File(cache, fileName);
   writeBytes(f, bytes);
-  if (!(await Sharing.isAvailableAsync())) throw new Error('Delen is op dit toestel niet beschikbaar.');
+  if (!(await Sharing.isAvailableAsync())) { deleteTemp(f.uri); throw new Error('Delen is op dit toestel niet beschikbaar.'); }
   try {
-    await Sharing.shareAsync(f.uri, { mimeType: 'application/pdf', UTI: 'com.adobe.pdf', dialogTitle: name });
+    await Sharing.shareAsync(f.uri, { mimeType: T.mime, UTI: T.uti, dialogTitle: fileName });
   } finally {
     deleteTemp(f.uri); // tijdelijke exportkopie weer opruimen
   }
 }
+export const sharePdf = (name: string, bytes: Uint8Array) => shareFile(name, bytes, 'pdf');
 
 /** Handtekeningen worden alleen lokaal bewaard. */
 export async function loadSignatures(): Promise<{ id: string; strokes: { u: number; v: number }[][]; ratio: number }[]> {
