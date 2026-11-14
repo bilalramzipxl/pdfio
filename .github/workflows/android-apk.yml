@@ -16,7 +16,7 @@ jobs:
         with: { distribution: temurin, java-version: 17 }
       - run: npm ci
       - run: npx expo prebuild --platform android --no-install
-      - name: Bouw APK (release, getekend met de debug-sleutel: direct installeerbaar)
+      - name: "Bouw APK (release, getekend met de debug-sleutel, direct installeerbaar)"
         run: cd android && chmod +x gradlew && ./gradlew assembleRelease --no-daemon
       - uses: actions/upload-artifact@v4
         with:
