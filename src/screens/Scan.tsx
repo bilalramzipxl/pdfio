@@ -18,6 +18,8 @@ type Shot = {
   corners: Corner[]; // TL TR BR BL, 0..1
   mode: ScanMode;
   shadow: boolean;
+  bright: number;   // -1..1, handmatig fijn afstellen
+  contrast: number; // -1..1
   note?: string;
   out?: { uri: string; w: number; h: number };
 };
@@ -40,7 +42,7 @@ export function Scan({ onCancel, onDone, demoPhotos }: { onCancel: () => void; o
   const fail = (e: unknown) => { setBusy(null); showAlert('Dat lukte niet', e instanceof Error ? e.message : String(e)); };
 
   const process = async (s: Shot): Promise<Shot> => {
-    const out = await r.scan(s.raw.b64, { corners: s.corners, mode: s.mode, shadow: s.shadow, maxSide: 3000, quality: 0.92 });
+    const out = await r.scan(s.raw.b64, { corners: s.corners, mode: s.mode, shadow: s.shadow, bright: s.bright, contrast: s.contrast, maxSide: 3000, quality: 0.92 });
     return { ...s, out };
   };
 
@@ -49,12 +51,12 @@ export function Scan({ onCancel, onDone, demoPhotos }: { onCancel: () => void; o
     setBusy('Pagina zoeken…');
     const corners = await r.detect(b64);
     setBusy(null);
-    setEditing({ id: uid(), raw: { b64, w, h }, corners, mode: 'document', shadow: true });
+    setEditing({ id: uid(), raw: { b64, w, h }, corners, mode: 'document', shadow: true, bright: 0, contrast: 0 });
   };
 
   useEffect(() => {
     if (!demoPhotos?.length) return;
-    (async () => { try { setBusy('Pagina zoeken…'); const p = await r.detect(demoPhotos[0]); setBusy(null); setEditing({ id: uid(), raw: { b64: demoPhotos[0], w: 1200, h: 900 }, corners: p, mode: 'document', shadow: true }); } catch (e) { fail(e); } })();
+    (async () => { try { setBusy('Pagina zoeken…'); const p = await r.detect(demoPhotos[0]); setBusy(null); setEditing({ id: uid(), raw: { b64: demoPhotos[0], w: 1200, h: 900 }, corners: p, mode: 'document', shadow: true, bright: 0, contrast: 0 }); } catch (e) { fail(e); } })();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fromPicker = async (res: ImagePicker.ImagePickerResult) => {
@@ -157,7 +159,7 @@ function ResultStep({ shots, pdf, name, onBack, onOpen }: { shots: Shot[]; pdf: 
   const imageBytes = async (f: 'jpeg' | 'png', i: number): Promise<Uint8Array> => {
     const s = shots[i], key = `${f}:${s.id}`;
     if (cache.current[key]) return cache.current[key];
-    const bytes = f === 'jpeg' ? b64ToBytes(s.out!.uri) : b64ToBytes((await r.scan(s.raw.b64, { corners: s.corners, mode: s.mode, shadow: s.shadow, maxSide: 3000, fmt: 'png' })).uri);
+    const bytes = f === 'jpeg' ? b64ToBytes(s.out!.uri) : b64ToBytes((await r.scan(s.raw.b64, { corners: s.corners, mode: s.mode, shadow: s.shadow, bright: s.bright, contrast: s.contrast, maxSide: 3000, fmt: 'png' })).uri);
     cache.current[key] = bytes; setSizes((x) => ({ ...x, [key]: bytes.length }));
     return bytes;
   };
@@ -204,7 +206,7 @@ function ResultStep({ shots, pdf, name, onBack, onOpen }: { shots: Shot[]; pdf: 
       <View style={{ padding: 16, gap: 10, backgroundColor: t.barBg }}>
         <View style={{ flexDirection: 'row', gap: 8 }}>
           {(['pdf', 'jpeg', 'png'] as ExportFormat[]).map((f) => (
-            <Pressable key={f} accessibilityRole="button" accessibilityState={{ selected: fmt === f }} onPress={() => choose(f)}
+            <Pressable key={f} accessibilityRole="button" accessibilityLabel={`Formaat ${EXPORT_TYPES[f].label}`} accessibilityState={{ selected: fmt === f }} onPress={() => choose(f)}
               style={{ flex: 1, minHeight: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: fmt === f ? t.accent : t.field, backgroundColor: fmt === f ? t.accent + '22' : 'transparent' }}>
               <Text style={{ color: fmt === f ? t.accent : t.text, fontWeight: '700' }}>{EXPORT_TYPES[f].label}</Text>
             </Pressable>
@@ -219,22 +221,40 @@ function ResultStep({ shots, pdf, name, onBack, onOpen }: { shots: Shot[]; pdf: 
   );
 }
 
-/** Bijsnijden en verbeteren: hoeken verslepen, suggestie, filter, schaduw, voorbeeld, draaien. */
+/** Kleine teller voor helderheid/contrast: min en plus, met een getal ertussen. */
+function Step({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
+  const t = useTheme();
+  const set = (v: number) => onChange(Math.max(-1, Math.min(1, Math.round(v * 4) / 4)));
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+      <Text style={{ color: t.text, fontWeight: '600', flex: 1 }}>{label}</Text>
+      <IconBtn icon="remove" label={`${label} lager`} disabled={value <= -1} onPress={() => set(value - 0.25)} />
+      <Text accessibilityLabel={`${label} ${Math.round(value * 4)}`} style={{ color: t.text, minWidth: 32, textAlign: 'center', fontWeight: '700' }}>{value > 0 ? '+' : ''}{Math.round(value * 4)}</Text>
+      <IconBtn icon="add" label={`${label} hoger`} disabled={value >= 1} onPress={() => set(value + 0.25)} />
+    </View>
+  );
+}
+
+/** Bijsnijden en verbeteren: hoeken verslepen (met vergrootglas), suggestie, filter, schaduw, helderheid/contrast, voorbeeld, draaien. */
 function CropStep({ shot, onCancel, onApply, onRotate }: { shot: Shot; onCancel: () => void; onApply: (s: Shot) => void; onRotate: (s: Shot) => void }) {
   const t = useTheme();
   const r = useRenderer();
   const [corners, setCorners] = useState<Corner[]>(shot.corners);
   const [mode, setMode] = useState<ScanMode>(shot.mode);
   const [shadow, setShadow] = useState<boolean>(shot.shadow);
+  const [bright, setBright] = useState(shot.bright);
+  const [contrast, setContrast] = useState(shot.contrast);
   const [note, setNote] = useState<string | null>(shot.note ?? null);
   const [working, setWorking] = useState<string | null>(null);
   const [showPrev, setShowPrev] = useState(false);
   const [prev, setPrev] = useState<{ uri: string; w: number; h: number } | null>(null);
+  const [drag, setDrag] = useState<number | null>(null);
   const [box, setBox] = useState({ w: 300, h: 400 });
   useEffect(() => setCorners(shot.corners), [shot.corners]);
-  useEffect(() => { setMode(shot.mode); setShadow(shot.shadow); setNote(shot.note ?? null); }, [shot.raw.b64]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setMode(shot.mode); setShadow(shot.shadow); setBright(shot.bright); setContrast(shot.contrast); setNote(shot.note ?? null); }, [shot.raw.b64]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const scale = Math.min(box.w / shot.raw.w, box.h / shot.raw.h);
+  const PAD = 16; // ruimte rond de foto zodat hoekgrepen op de rand niet half buiten beeld vallen
+  const scale = Math.min((box.w - 2 * PAD) / shot.raw.w, (box.h - 2 * PAD) / shot.raw.h);
   const dw = shot.raw.w * scale, dh = shot.raw.h * scale;
   const ox = (box.w - dw) / 2, oy = (box.h - dh) / 2;
   const L = useRef({ corners, dw, dh });
@@ -245,11 +265,13 @@ function CropStep({ shot, onCancel, onApply, onRotate }: { shot: Shot; onCancel:
     onStartShouldSetPanResponder: () => true,
     onMoveShouldSetPanResponder: () => true,
     onPanResponderTerminationRequest: () => false,
-    onPanResponderGrant: () => { start.current = { ...L.current.corners[i] }; },
+    onPanResponderGrant: () => { start.current = { ...L.current.corners[i] }; setDrag(i); },
     onPanResponderMove: (_e, g) => {
       const x = Math.min(1, Math.max(0, start.current.x + g.dx / L.current.dw)), y = Math.min(1, Math.max(0, start.current.y + g.dy / L.current.dh));
       setCorners((c) => c.map((p, k) => (k === i ? { x, y } : p)));
     },
+    onPanResponderRelease: () => setDrag(null),
+    onPanResponderTerminate: () => setDrag(null),
   })), []);
 
   // Voorbeeld van het eindresultaat (kleiner en snel), bijgewerkt na elke aanpassing.
@@ -257,10 +279,10 @@ function CropStep({ shot, onCancel, onApply, onRotate }: { shot: Shot; onCancel:
     if (!showPrev) return;
     let dead = false;
     const h = setTimeout(async () => {
-      try { const o = await r.scan(shot.raw.b64, { corners, mode, shadow, maxSide: 900, quality: 0.75 }); if (!dead) setPrev(o); } catch { /* voorbeeld is optioneel */ }
+      try { const o = await r.scan(shot.raw.b64, { corners, mode, shadow, bright, contrast, maxSide: 900, quality: 0.75 }); if (!dead) setPrev(o); } catch { /* voorbeeld is optioneel */ }
     }, 250);
     return () => { dead = true; clearTimeout(h); };
-  }, [showPrev, corners, mode, shadow, shot.raw.b64]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [showPrev, corners, mode, shadow, bright, contrast, shot.raw.b64]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /** Suggestie: de app kijkt naar de foto en kiest de beste bewerking. */
   const suggest = async () => {
@@ -268,22 +290,29 @@ function CropStep({ shot, onCancel, onApply, onRotate }: { shot: Shot; onCancel:
       setWorking('Foto bekijken…');
       const s = await r.suggest(shot.raw.b64, { corners });
       const text = s.notes.join(' · ');
-      setMode(s.mode); setShadow(s.shadow); setNote(text);
-      if (s.rotate) onRotate({ ...shot, corners, mode: s.mode, shadow: s.shadow, note: text });
+      setMode(s.mode); setShadow(s.shadow); setBright(0); setContrast(0); setNote(text);
+      if (s.rotate) onRotate({ ...shot, corners, mode: s.mode, shadow: s.shadow, bright: 0, contrast: 0, note: text });
     } catch (e) { showAlert('Dat lukte niet', e instanceof Error ? e.message : String(e)); }
     finally { setWorking(null); }
   };
+  const autoEdges = async () => {
+    try { setWorking('Randen zoeken…'); setCorners(await r.detect(shot.raw.b64)); }
+    catch (e) { showAlert('Dat lukte niet', e instanceof Error ? e.message : String(e)); }
+    finally { setWorking(null); }
+  };
+  const wholePhoto = () => setCorners([{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }, { x: 0, y: 1 }]);
 
   const isDoc = mode === 'document';
   const pts = corners.map((p) => `${ox + p.x * dw},${oy + p.y * dh}`).join(' ');
-  const cur = (): Shot => ({ ...shot, corners, mode, shadow });
+  const cur = (): Shot => ({ ...shot, corners, mode, shadow, bright, contrast });
+  const chip = (on: boolean) => ({ minHeight: 44, paddingHorizontal: 16, borderRadius: 22, alignItems: 'center' as const, justifyContent: 'center' as const, borderWidth: 1.5, borderColor: on ? t.accent : t.field, backgroundColor: on ? t.accent + '22' : 'transparent' });
+  const LP = 120, Z = 3, dp = drag !== null ? corners[drag] : null;
   return (
     <View style={{ flex: 1, backgroundColor: '#0B0D12' }}>
-      <TopBar title="Randen aanpassen" left={<IconBtn icon="chevron-back" label="Terug" onPress={onCancel} />} />
-      <Text style={{ color: '#C9D1DE', textAlign: 'center', paddingVertical: 8 }}>{showPrev ? 'Zo wordt de scan' : 'Sleep de vier hoeken naar de hoeken van het blad'}</Text>
+      <TopBar title={showPrev ? 'Zo wordt de scan' : 'Randen aanpassen'} left={<IconBtn icon="chevron-back" label={showPrev ? 'Terug naar de randen' : 'Terug'} onPress={showPrev ? () => setShowPrev(false) : onCancel} />} />
       <View style={{ flex: 1 }} onLayout={(e) => setBox({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })}>
         {showPrev && prev ? (
-          <Image source={{ uri: prev.uri }} style={{ position: 'absolute', left: 0, top: 0, width: box.w, height: box.h }} resizeMode="contain" accessibilityLabel="Voorbeeld van de scan" />
+          <Image source={{ uri: prev.uri }} style={{ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0 }} resizeMode="contain" accessibilityLabel="Voorbeeld van de scan" />
         ) : (
           <>
             <Image source={{ uri: `data:image/jpeg;base64,${shot.raw.b64}` }} style={{ position: 'absolute', left: ox, top: oy, width: dw, height: dh }} resizeMode="stretch" accessibilityLabel="Foto van het blad" />
@@ -295,15 +324,34 @@ function CropStep({ shot, onCancel, onApply, onRotate }: { shot: Shot; onCancel:
               <View key={i} {...pans[i].panHandlers} accessibilityLabel={`Hoek ${['linksboven', 'rechtsboven', 'rechtsonder', 'linksonder'][i]}`}
                 style={{ position: 'absolute', left: ox + p.x * dw - 28, top: oy + p.y * dh - 28, width: 56, height: 56 }} />
             ))}
+            {dp ? (
+              <View pointerEvents="none" style={{ position: 'absolute', top: 8, left: ox + dp.x * dw > box.w / 2 ? 8 : box.w - LP - 8, width: LP, height: LP, borderRadius: LP / 2, overflow: 'hidden', borderWidth: 2, borderColor: '#fff', backgroundColor: '#000' }}>
+                <Image source={{ uri: `data:image/jpeg;base64,${shot.raw.b64}` }} resizeMode="stretch" style={{ position: 'absolute', left: LP / 2 - dp.x * dw * Z, top: LP / 2 - dp.y * dh * Z, width: dw * Z, height: dh * Z }} />
+                <View style={{ position: 'absolute', left: 0, right: 0, top: LP / 2 - 0.5, height: 1, backgroundColor: '#2F6BFF' }} />
+                <View style={{ position: 'absolute', top: 0, bottom: 0, left: LP / 2 - 0.5, width: 1, backgroundColor: '#2F6BFF' }} />
+              </View>
+            ) : null}
           </>
         )}
       </View>
       <View style={{ backgroundColor: t.barBg, padding: 14, gap: 10 }}>
-        {note ? <Text style={{ color: t.sub, fontSize: 13, lineHeight: 18 }} accessibilityLiveRegion="polite">Suggestie: {note}</Text> : null}
+        {note ? <Text numberOfLines={3} style={{ color: t.sub, fontSize: 13, lineHeight: 18 }} accessibilityLiveRegion="polite">Suggestie: {note}</Text> : null}
+        {showPrev ? (
+          <View style={{ gap: 2 }}>
+            <Step label="Helderheid" value={bright} onChange={setBright} />
+            <Step label="Contrast" value={contrast} onChange={setContrast} />
+          </View>
+        ) : (
+          <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+            <Text style={{ color: t.sub, flex: 1 }}>Randen</Text>
+            <Pressable accessibilityRole="button" accessibilityLabel="Hele foto als rand" onPress={wholePhoto} style={chip(false)}><Text style={{ color: t.text, fontWeight: '700' }}>Hele foto</Text></Pressable>
+            <Pressable accessibilityRole="button" accessibilityLabel="Randen automatisch zoeken" onPress={autoEdges} style={chip(false)}><Text style={{ color: t.text, fontWeight: '700' }}>Automatisch</Text></Pressable>
+          </View>
+        )}
         <Btn label="Automatisch verbeteren" icon="sparkles-outline" kind="ghost" onPress={suggest} disabled={!!working} />
         <View style={{ flexDirection: 'row', gap: 8 }}>
           {MODES.map((m) => (
-            <Pressable key={m.key} accessibilityRole="button" accessibilityState={{ selected: mode === m.key }} onPress={() => setMode(m.key)}
+            <Pressable key={m.key} accessibilityRole="button" accessibilityLabel={`Filter ${m.label}`} accessibilityState={{ selected: mode === m.key }} onPress={() => setMode(m.key)}
               style={{ flex: 1, minHeight: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: mode === m.key ? t.accent : t.field, backgroundColor: mode === m.key ? t.accent + '22' : 'transparent' }}>
               <Text numberOfLines={1} adjustsFontSizeToFit style={{ color: mode === m.key ? t.accent : t.text, fontWeight: '700', fontSize: 13 }}>{m.label}</Text>
             </Pressable>
@@ -312,11 +360,10 @@ function CropStep({ shot, onCancel, onApply, onRotate }: { shot: Shot; onCancel:
         <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
           <Pressable accessibilityRole="switch" accessibilityState={{ checked: isDoc || shadow, disabled: isDoc }} accessibilityLabel="Schaduw weghalen" disabled={isDoc} onPress={() => setShadow((x) => !x)}
             style={{ flex: 1, minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <Switch value={isDoc || shadow} disabled={isDoc} onValueChange={setShadow} accessibilityLabel="Schaduw weghalen" />
-            <Text style={{ color: t.text, fontWeight: '600', flexShrink: 1 }}>{isDoc ? 'Schaduw weg (vast)' : 'Schaduw weg'}</Text>
+            <Switch value={isDoc || shadow} disabled={isDoc} onValueChange={setShadow} importantForAccessibility="no-hide-descendants" />
+            <Text style={{ color: t.text, fontWeight: '600', flexShrink: 1 }}>{isDoc ? 'Schaduw weg (altijd bij Document)' : 'Schaduw weg'}</Text>
           </Pressable>
-          <Pressable accessibilityRole="button" accessibilityState={{ selected: showPrev }} onPress={() => setShowPrev((x) => !x)}
-            style={{ minHeight: 48, paddingHorizontal: 16, borderRadius: 24, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: showPrev ? t.accent : t.field, backgroundColor: showPrev ? t.accent + '22' : 'transparent' }}>
+          <Pressable accessibilityRole="button" accessibilityState={{ selected: showPrev }} onPress={() => setShowPrev((x) => !x)} style={{ ...chip(showPrev), minHeight: 48 }}>
             <Text style={{ color: showPrev ? t.accent : t.text, fontWeight: '700' }}>Voorbeeld</Text>
           </Pressable>
           <IconBtn icon="refresh" label="Foto 90 graden draaien" onPress={() => onRotate(cur())} />

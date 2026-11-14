@@ -45,3 +45,4 @@ yarn-error.*
 .claude/controle-status.json
 scripts/renderer.html
 builds/
+.controleapporten/
