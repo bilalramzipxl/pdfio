@@ -44,3 +44,4 @@ yarn-error.*
 .controle/
 .claude/controle-status.json
 scripts/renderer.html
+builds/
