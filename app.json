@@ -1,15 +1,18 @@
 {
   "expo": {
-    "name": "pdfapp",
-    "slug": "pdfapp",
+    "name": "PDF Studio",
+    "slug": "pdf-studio",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "automatic",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "app.pdfstudio.local",
+      "infoPlist": { "ITSAppUsesNonExemptEncryption": false }
     },
     "android": {
+      "package": "app.pdfstudio.local",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -18,8 +21,13 @@
       },
       "predictiveBackGestureEnabled": false
     },
-    "web": {
-      "favicon": "./assets/favicon.png"
-    }
+    "plugins": [
+      "expo-sharing",
+      "expo-asset",
+      ["expo-image-picker", {
+        "cameraPermission": "PDF Studio gebruikt de camera om pagina's te scannen. De foto's blijven op je toestel.",
+        "photosPermission": "PDF Studio gebruikt je foto's om ze in een PDF te zetten. Ze blijven op je toestel."
+      }]
+    ]
   }
 }

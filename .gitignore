@@ -39,3 +39,8 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# controle-loop
+.controle/
+.claude/controle-status.json
+scripts/renderer.html
